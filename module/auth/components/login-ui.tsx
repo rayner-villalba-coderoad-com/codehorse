@@ -26,7 +26,7 @@ const LoginUI = () => {
           <div className="mb-16">
             <div className="inline-flex items-center gap-2 text-2xl font-bold">
               <div className="w-8 h-8 bg-primary rounded-full"></div>
-              <span>CodeHorse</span>
+              <span>CodeRoad AI</span>
             </div>
           </div>
 
@@ -61,7 +61,7 @@ const LoginUI = () => {
           { /* Footer Links */}
           <div className="space-y-4 text-center text-sm text-gray-400">
             <div>
-              New to CodeRoad ? { " "}
+              New to CodeRoad AI? { " "}
               <a href="#" className="text-primary hover:text-primary-foreground font-semibold">Sign Up</a>
             </div>
             <div>
