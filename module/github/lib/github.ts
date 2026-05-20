@@ -2,6 +2,7 @@ import {Octokit} from "octokit";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/db";
 import { headers } from "next/headers";
+
 // Getting the github access token from the database and return it
 export const getGithubToken = async () => {
   const session = await auth.api.getSession({
@@ -119,3 +120,35 @@ export const createWebhook = async(owner: string, repo:string) => {
 
   return data; 
 }
+
+export const deleteWebhook = async(owner: string, repo: string) => {
+  const token = await getGithubToken();
+  const octokit = new Octokit({auth: token}); 
+  const webhookUrl = `${process.env.NEXT_PUBLIC_APP_BASE_URL}/api/webhooks/github`;
+
+  try {
+    const {data:hooks} = await octokit.rest.repos.listWebhooks({
+      owner,
+      repo
+    })
+
+    const hookToDelete = hooks.find(hook => hook.config.url === webhookUrl);
+
+    if (hookToDelete) {
+      await octokit.rest.repos.deleteWebhook({
+        owner,
+        repo,
+        hook_id: hookToDelete.id
+      });
+
+      return true
+    }
+
+    return false
+  } catch (error) {
+    console.error("Error deleting webhook: ", error);
+    return false;
+  }
+}
+
+
