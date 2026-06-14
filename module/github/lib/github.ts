@@ -251,7 +251,7 @@ export async function postReviewComment(
     owner,
     repo,
     issue_number: prNumber,
-    body: `## 🤖 CodeRoad AI Code Review\n\n${review}\n\n---\n*Powered by CodeRoad*`,
+    body: `## 🤖 CodeRoad AI Code Reviewer\n\n${review}\n\n---\n*Powered by CodeRoad*`,
   })
 }
 
