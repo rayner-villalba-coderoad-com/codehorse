@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "@langchain/langgraph",
     "@langchain/core",
     "@langchain/google-genai",
+    "@langchain/anthropic",
     "@pinecone-database/pinecone",
   ],
 };

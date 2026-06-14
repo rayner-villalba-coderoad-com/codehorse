@@ -82,4 +82,7 @@ Prisma ORM with the native PrismaPg adapter (not the default Prisma engine). The
 | `NEXT_PUBLIC_APP_BASE_URL` | Public URL (used for webhook registration) |
 | `INNGEST_DEV` | Set to `1` for local Inngest dev server |
 | `PINECONE_DB_API_KEY` | Pinecone API key |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini API key |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini API key (also used for embeddings/RAG, always) |
+| `AI_PROVIDER` | Review chat model provider: `gemini` (default) or `anthropic` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=anthropic`) |
+| `ANTHROPIC_MODEL` | Optional Claude model override (default `claude-sonnet-4-6`) |
