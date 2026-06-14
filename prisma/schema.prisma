@@ -41,6 +41,9 @@ model Review {
   prTitle    String
   prUrl      String
   review     String @db.Text
+  findings   Json?  // structured per-agent findings from the multi-agent review
+  fixBranch  String? // branch created by the auto-fix agent, if any
+  fixPrUrl   String? // URL of the PR opened with automated fixes, if any
   status     String @default("completed") //completed, failed, pending
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

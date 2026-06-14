@@ -241,18 +241,155 @@ export async function getPullRequestDiff(
 export async function postReviewComment(
   token: string,
   owner: string,
-  repo: string, 
+  repo: string,
   prNumber: number,
   review: string
 ) {
   const octokit = new Octokit({auth: token});
 
   await octokit.rest.issues.createComment({
-    owner, 
+    owner,
     repo,
     issue_number: prNumber,
-    body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by CodeRoad*`,
+    body: `## 🤖 CodeRoad AI Code Review\n\n${review}\n\n---\n*Powered by CodeRoad*`,
   })
+}
+
+// Posts a plain comment on a PR/issue (no review header wrapper).
+export async function postPrComment(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body: string
+) {
+  const octokit = new Octokit({ auth: token });
+
+  await octokit.rest.issues.createComment({
+    owner,
+    repo,
+    issue_number: prNumber,
+    body,
+  });
+}
+
+// Metadata about a PR's head/base branches, used by the auto-fix flow.
+export async function getPullRequestMeta(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number
+) {
+  const octokit = new Octokit({ auth: token });
+  const { data: pr } = await octokit.rest.pulls.get({
+    owner,
+    repo,
+    pull_number: prNumber,
+  });
+
+  return {
+    headRef: pr.head.ref,
+    headSha: pr.head.sha,
+    baseRef: pr.base.ref,
+    // The auto-fix flow only supports PRs whose head branch lives in the same repo.
+    isFork: pr.head.repo?.fork ?? pr.head.repo?.full_name !== `${owner}/${repo}`,
+  };
+}
+
+// Reads a single file at a given ref. Returns null if it does not exist or is not a file.
+export async function getFileContent(
+  token: string,
+  owner: string,
+  repo: string,
+  path: string,
+  ref: string
+): Promise<{ content: string; sha: string } | null> {
+  const octokit = new Octokit({ auth: token });
+
+  try {
+    const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref });
+
+    if (Array.isArray(data) || data.type !== "file" || !data.content) {
+      return null;
+    }
+
+    return {
+      content: Buffer.from(data.content, "base64").toString("utf-8"),
+      sha: data.sha,
+    };
+  } catch (error: unknown) {
+    if (typeof error === "object" && error !== null && "status" in error && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+// Creates a branch from a commit SHA. Tolerates an already-existing ref (retry-safe).
+export async function createBranch(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  fromSha: string
+) {
+  const octokit = new Octokit({ auth: token });
+
+  try {
+    await octokit.rest.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branch}`,
+      sha: fromSha,
+    });
+  } catch (error: unknown) {
+    // 422 = "Reference already exists" — fine, we'll commit onto the existing branch.
+    if (typeof error === "object" && error !== null && "status" in error && error.status === 422) {
+      return;
+    }
+    throw error;
+  }
+}
+
+// Creates or updates a file on a branch. `sha` is required when updating an existing file.
+export async function commitFile(
+  token: string,
+  owner: string,
+  repo: string,
+  params: { path: string; content: string; message: string; branch: string; sha?: string }
+) {
+  const octokit = new Octokit({ auth: token });
+
+  await octokit.rest.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: params.path,
+    message: params.message,
+    content: Buffer.from(params.content, "utf-8").toString("base64"),
+    branch: params.branch,
+    sha: params.sha,
+  });
+}
+
+// Opens a pull request and returns its URL and number.
+export async function createPullRequest(
+  token: string,
+  owner: string,
+  repo: string,
+  params: { title: string; head: string; base: string; body: string }
+): Promise<{ url: string; number: number }> {
+  const octokit = new Octokit({ auth: token });
+
+  const { data } = await octokit.rest.pulls.create({
+    owner,
+    repo,
+    title: params.title,
+    head: params.head,
+    base: params.base,
+    body: params.body,
+  });
+
+  return { url: data.html_url, number: data.number };
 }
 
 

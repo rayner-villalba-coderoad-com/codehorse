@@ -1,9 +1,23 @@
 import { inngest } from '../client';
-import { getPullRequestDiff, postReviewComment } from '@/module/github/lib/github';
+import {
+  getPullRequestDiff,
+  postReviewComment,
+  getPullRequestMeta,
+  getFileContent,
+  createBranch,
+  commitFile,
+  createPullRequest,
+  postPrComment,
+} from '@/module/github/lib/github';
 import { retrieveContext } from '@/module/ai/lib/rag';
-import { generateText } from 'ai';
-import { google } from '@ai-sdk/google';
+import { runMultiAgentReview } from '@/module/ai/agents/graph';
+import { collectActionableFindings, generateFixedFile } from '@/module/ai/agents/fixer';
+import type { Prisma } from '@/lib/generated/prisma/client';
 import prisma from '@/lib/db';
+
+// Bounds on the auto-fix step to keep cost and blast radius reasonable.
+const MAX_FIX_FILES = 8;
+const MAX_FIXABLE_FILE_CHARS = 60000;
 
 export const generateReview = inngest.createFunction(
   { id: "generate-review",
@@ -39,41 +53,105 @@ export const generateReview = inngest.createFunction(
       return await retrieveContext(query, `${owner}/${repo}`);
     });
 
-    const review = await step.run("generate-ai-review", async()=> {
-      const prompt = `You are an expert code reviewer. Analyze the following pull request and provide a detailed, constructive code review.
-
-        PR Title: ${title}
-        PR Description: ${description || "No description provided"}
-
-        Context from Codebase:
-        ${context.join("\n\n")}
-
-        Code Changes:
-        \`\`\`diff
-        ${diff}
-        \`\`\`
-
-        Please provide:
-        1. **Walkthrough**: A file-by-file explanation of the changes.
-        2. **Sequence Diagram**: A Mermaid JS sequence diagram visualizing the flow of the changes (if applicable). Use \`\`\`mermaid ... \`\`\` block. **IMPORTANT**: Ensure the Mermaid syntax is valid. Do not use special characters (like quotes, braces, parentheses) inside Note text or labels as it breaks rendering. Keep the diagram simple.
-        3. **Summary**: Brief overview.
-        4. **Strengths**: What's done well.
-        5. **Issues**: Bugs, security concerns, code smells.
-        6. **Suggestions**: Specific code improvements.
-        7. **Poem**: A short, creative poem summarizing the changes at the very end.
-
-        Format your response in markdown.`;
-
-      const { text } = await generateText({
-        model: google("gemini-2.5-flash"),
-        prompt
-      })
-
-      return text;
+    // LangGraph orchestrates four specialist agents (best practices, security,
+    // performance, documentation) in parallel plus a synthesizer node. With
+    // Inngest concurrency 5, this can reach ~20 concurrent Gemini calls — lower
+    // the function concurrency if Gemini rate limits become an issue.
+    const { finalMarkdown, findings } = await step.run("generate-ai-review", async()=> {
+      return await runMultiAgentReview({ title, description, diff, context });
     });
 
     await step.run('post-comment', async() => {
-      await postReviewComment(token, owner, repo, prNumber, review);
+      await postReviewComment(token, owner, repo, prNumber, finalMarkdown);
+    });
+
+    // After the review, an auto-fix agent applies the actionable suggestions on a
+    // new branch and opens a PR targeting the original PR's head branch. Best-effort:
+    // any failure logs and returns null so the review still gets saved.
+    const fix = await step.run('apply-fixes', async (): Promise<{ fixBranch: string; fixPrUrl: string } | null> => {
+      try {
+        const targets = collectActionableFindings(findings).slice(0, MAX_FIX_FILES);
+        if (targets.length === 0) {
+          return null;
+        }
+
+        const meta = await getPullRequestMeta(token, owner, repo, prNumber);
+
+        if (meta.isFork) {
+          await postPrComment(
+            token,
+            owner,
+            repo,
+            prNumber,
+            "🤖 Auto-fix is not supported for pull requests opened from a fork yet, so no fix branch was created."
+          );
+          return null;
+        }
+
+        const fixBranch = `coderoad-ai-reviewer/fix/pr-${prNumber}-${Date.now()}`;
+        await createBranch(token, owner, repo, fixBranch, meta.headSha);
+
+        const fixedFiles: string[] = [];
+        for (const target of targets) {
+          const current = await getFileContent(token, owner, repo, target.file, meta.headRef);
+          if (!current || current.content.length > MAX_FIXABLE_FILE_CHARS) {
+            continue;
+          }
+
+          const updated = await generateFixedFile({
+            path: target.file,
+            content: current.content,
+            findings: target.items,
+          });
+
+          if (!updated || updated === current.content) {
+            continue;
+          }
+
+          await commitFile(token, owner, repo, {
+            path: target.file,
+            content: updated,
+            message: `fix: apply review suggestions to ${target.file} (PR #${prNumber})`,
+            branch: fixBranch,
+            sha: current.sha,
+          });
+          fixedFiles.push(target.file);
+        }
+
+        if (fixedFiles.length === 0) {
+          return null;
+        }
+
+        const body = [
+          `This PR applies automated fixes for review findings on #${prNumber}.`,
+          "",
+          "Files updated:",
+          ...fixedFiles.map((f) => `- \`${f}\``),
+          "",
+          "---",
+          "*Generated by CodeRoad multi-agent review.*",
+        ].join("\n");
+
+        const pr = await createPullRequest(token, owner, repo, {
+          title: `🤖 Auto-fix: review findings for PR #${prNumber}`,
+          head: fixBranch,
+          base: meta.headRef,
+          body,
+        });
+
+        await postPrComment(
+          token,
+          owner,
+          repo,
+          prNumber,
+          `🤖 I opened a PR with automated fixes for the review findings: ${pr.url}`
+        );
+
+        return { fixBranch, fixPrUrl: pr.url };
+      } catch (error) {
+        console.error("[apply-fixes] failed:", error);
+        return null;
+      }
     });
 
     await step.run('save-review', async()=> {
@@ -91,7 +169,10 @@ export const generateReview = inngest.createFunction(
             prNumber,
             prTitle: title,
             prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            review,
+            review: finalMarkdown,
+            findings: findings as unknown as Prisma.InputJsonValue,
+            fixBranch: fix?.fixBranch ?? null,
+            fixPrUrl: fix?.fixPrUrl ?? null,
             status: "completed",
           },
         });
