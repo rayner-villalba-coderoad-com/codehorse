@@ -62,11 +62,32 @@ model Repository {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   reviews     Review[]
+  securityScans SecurityScan[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([userId])
   @@map("repository")
+}
+
+model SecurityScan {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  status        String     @default("pending") // pending, running, completed, failed
+  report        String?    @db.Text // markdown vulnerability report
+  findings      Json?      // structured Finding[] from the security agent
+  criticalCount Int        @default(0)
+  highCount     Int        @default(0)
+  totalCount    Int        @default(0)
+  fixBranch     String?    // branch created with fixes for critical findings, if any
+  fixPrUrl      String?    // URL of the PR opened with automated fixes, if any
+  error         String?    @db.Text // failure reason, if status == "failed"
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([repositoryId])
+  @@map("security_scan")
 }
 
 model Session {

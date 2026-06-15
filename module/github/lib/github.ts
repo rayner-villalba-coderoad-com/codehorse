@@ -392,4 +392,25 @@ export async function createPullRequest(
   return { url: data.html_url, number: data.number };
 }
 
+// Returns the repo's default branch name and its head commit SHA. Used by the
+// security scan auto-fix flow, which branches from the default branch (there is
+// no PR head to start from, unlike the PR review flow).
+export async function getDefaultBranch(
+  token: string,
+  owner: string,
+  repo: string
+): Promise<{ branch: string; sha: string }> {
+  const octokit = new Octokit({ auth: token });
+
+  const { data: repoData } = await octokit.rest.repos.get({ owner, repo });
+  const branch = repoData.default_branch;
+
+  const { data: branchData } = await octokit.rest.repos.getBranch({
+    owner,
+    repo,
+    branch,
+  });
+
+  return { branch, sha: branchData.commit.sha };
+}
 

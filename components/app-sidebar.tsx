@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, BookOpen, Settings, Moon, Sun, LogOut, Star, CreditCard } from 'lucide-react';
+import { Box, BookOpen, Settings, Moon, Sun, LogOut, Star, CreditCard, ShieldAlert } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import { usePathname } from 'next/navigation';
@@ -31,6 +31,7 @@ export default function AppSidebar() {
     { title: 'Dashboard',    url: '/dashboard',              icon: BookOpen   },
     { title: 'Repository',   url: '/dashboard/repository',   icon: Box        },
     { title: 'Reviews',      url: '/dashboard/reviews',      icon: Star       },
+    { title: 'Security',     url: '/dashboard/security',     icon: ShieldAlert},
     { title: 'Subscription', url: '/dashboard/subscription', icon: CreditCard },
     { title: 'Settings',     url: '/dashboard/settings',     icon: Settings   },
   ];
