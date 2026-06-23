@@ -26,7 +26,8 @@ export const fetchRepositories = async (page: number = 1, perPage: number = 10) 
 
   return githubRepos.map((repo: any) => ({
     ...repo,
-    isConnected: connectedRepoIds.has(String(repo.id)),
+    // githubId is a BigInt in the DB, so compare as BigInt (GitHub repo ids are numbers).
+    isConnected: connectedRepoIds.has(BigInt(repo.id)),
   }));
 };
 
@@ -40,9 +41,9 @@ export const connectRepository = async(owner: string, repo: string, githubId: nu
   }
 
   await prisma.repository.upsert({
-    where: { githubId: String(githubId) },
+    where: { githubId: BigInt(githubId) },
     create: {
-      githubId: String(githubId),
+      githubId: BigInt(githubId),
       name: repo,
       owner,
       fullName: `${owner}/${repo}`,

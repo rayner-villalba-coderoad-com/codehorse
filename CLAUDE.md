@@ -34,6 +34,7 @@ For Inngest to work locally, `INNGEST_DEV=1` must be set in `.env`.
    - Queries Pinecone for relevant codebase context (RAG)
    - Calls Google Gemini 2.5 Flash to produce the review
    - Posts the review as a GitHub PR comment
+   - Sets a `coderoad/ai-review` commit status (`failure` on critical/high findings, else `success`) — see **Merge blocking**
    - Saves the review to the `Review` table
 3. **Repository indexing** happens on `"repository.connected"` → `indexRepo` Inngest function fetches all repo files, generates embeddings, and upserts them into Pinecone
 
@@ -70,6 +71,14 @@ Prisma ORM with the native PrismaPg adapter (not the default Prisma engine). The
 - Embeddings and vector storage: `@pinecone-database/pinecone` — configured in `lib/pinecone.ts`, logic in `module/ai/lib/rag.ts`
 - Text generation: `@ai-sdk/google` with `google("gemini-2.5-flash")` via Vercel AI SDK `generateText`
 
+### Merge blocking
+
+After a review, `generateReview` posts a GitHub **commit status** (`repos.createCommitStatus`) on the PR head commit under the context `coderoad/ai-review`. `module/ai/agents/policy.ts` (`evaluateMergeBlock`) inspects the findings: any finding of severity **`critical` or `high`** (across all five agents — e.g. exploitable vulns, unmet Jira acceptance criteria) sets the status to `failure`; otherwise `success`. A failing status also prepends a "⛔ Merge blocked" banner to the PR comment, and the decision is persisted on the `Review` row (`blocking`, `criticalCount`, `highCount`).
+
+The status helper lives in `module/github/lib/github.ts` (`setReviewStatus`, `REVIEW_STATUS_CONTEXT`). Because auth is a user OAuth token (`repo` scope), not a GitHub App, this uses commit statuses rather than Check Runs.
+
+**A failing status only disables the merge button if the repo requires it.** To actually block merges, the repo owner must add `coderoad/ai-review` as a required status check: Repo → **Settings → Branches → Branch protection rule** → enable **"Require status checks to pass before merging"** → add `coderoad/ai-review`. The protection rule must be on the PR's **base** branch (commonly `main`); PRs targeting other unprotected branches are not gated.
+
 ### Environment variables
 
 | Variable | Purpose |
@@ -89,3 +98,26 @@ Prisma ORM with the native PrismaPg adapter (not the default Prisma engine). The
 | `JIRA_BASE_URL` | Optional Jira Cloud base URL (e.g. `https://your-domain.atlassian.net`). Global **fallback** — per-user credentials saved in Settings take precedence |
 | `JIRA_EMAIL` | Optional Atlassian account email for Jira API basic auth (fallback) |
 | `JIRA_API_TOKEN` | Optional Atlassian API token (paired with `JIRA_EMAIL`). Per-user config in Settings overrides these. When neither a user's `JiraConfig` nor the `JIRA_*` vars are set, ticket enrichment is skipped and the testing agent runs in test-coverage mode |
+| `INNGEST_SIGNING_KEY` / `INNGEST_EVENT_KEY` | **Production only** — register the app with Inngest Cloud so background jobs run. In production set these and do **not** set `INNGEST_DEV` |
+
+## Deployment (CI/CD → GCP VM)
+
+CI/CD runs on GitHub Actions and ships a Docker image to a GCP virtual machine.
+
+- **Package manager:** dependencies install with **bun** (`bun.lock`). bun resolves the
+  platform-specific native binaries (lightningcss / `@tailwindcss/oxide`) that npm's
+  darwin-only `package-lock.json` cannot. The app is built and run with **Node 22**.
+- **`.github/workflows/ci.yml`** — on every PR and on `main`: `bun install` → `prisma generate` → lint → `tsc --noEmit` → `next build`.
+- **`.github/workflows/deploy.yml`** — on push to `main` (and manual `workflow_dispatch`): builds the `Dockerfile` (Next.js `output: "standalone"`; deps via bun, build via Node), pushes to **Google Artifact Registry**, runs `prisma migrate deploy` against Neon, then deploys to the VM over an **IAP SSH** tunnel. Auth to GCP is keyless via **Workload Identity Federation** (no service-account key in GitHub). `workflow_dispatch` accepts an `image_tag` input to **roll back** to a previously built image (skips build + migrate).
+- **`deploy/`** — files that live on the VM at `/opt/coderoad`: `docker-compose.yml` (runs `${IMAGE}`, binds `127.0.0.1:3000`, loads `.env`), `deploy.sh` (pull → `up -d` → prune → health-check, invoked by the workflow), and `.env.example` (runtime vars template).
+
+The VM is assumed **already provisioned**: Docker installed, a reverse proxy (nginx/Caddy) with TLS forwarding the domain to `127.0.0.1:3000`, and `/opt/coderoad/.env` populated from `deploy/.env.example`.
+
+**One-time setup**
+
+- *GCP*: an Artifact Registry Docker repo; a WIF pool + provider bound to this GitHub repo; a **deployer SA** with `artifactregistry.writer`, `compute.osLogin` (or `instanceAdmin`), `iap.tunnelResourceAccessor`, `iam.serviceAccountUser`; the **VM's SA** with `artifactregistry.reader` and Docker configured via `gcloud auth configure-docker <REGION>-docker.pkg.dev`; IAP TCP forwarding allowed on port 22.
+- *GitHub repo **variables***: `GCP_PROJECT_ID`, `GCP_REGION`, `GAR_REPO`, `GCE_INSTANCE`, `GCE_ZONE`, `NEXT_PUBLIC_APP_BASE_URL` (build-time public URL).
+- *GitHub `production` environment **secrets***: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`, `DATABASE_URL`.
+- *Inngest*: set `INNGEST_SIGNING_KEY`/`INNGEST_EVENT_KEY` in the VM `.env` and sync `https://<domain>/api/inngest` in the Inngest dashboard, or background reviews won't run.
+
+Local image smoke test: `docker build --build-arg NEXT_PUBLIC_APP_BASE_URL=http://localhost:3000 -t coderoad:test .` then `docker run --rm -p 3000:3000 --env-file .env coderoad:test`.

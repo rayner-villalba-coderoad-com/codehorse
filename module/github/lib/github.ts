@@ -34,7 +34,7 @@ interface contributionData {
         totalContributions: number;
         weeks: {
           contributionDays: {
-            date: string | Date;
+            date: string;
             contributionCount: number;
             color: string;
           }[];
@@ -235,8 +235,39 @@ export async function getPullRequestDiff(
     diff: diff as unknown as string,
     title: pr.title,
     description: pr.body || "",
-    headRef: pr.head.ref
+    headRef: pr.head.ref,
+    headSha: pr.head.sha
   };
+}
+
+// Stable commit-status context for the AI review gate. Reused on every update so the
+// same check is overwritten rather than duplicated. Make it a required status check in
+// branch protection to actually block merges on a "failure" state.
+export const REVIEW_STATUS_CONTEXT = "coderoad/ai-review";
+
+// Posts/updates the AI review commit status on a PR's head commit. With the status added
+// as a required check in branch protection, a "failure" state disables the merge button.
+export async function setReviewStatus(
+  token: string,
+  owner: string,
+  repo: string,
+  sha: string,
+  state: "pending" | "success" | "failure" | "error",
+  description: string,
+  targetUrl?: string
+) {
+  const octokit = new Octokit({ auth: token });
+
+  await octokit.rest.repos.createCommitStatus({
+    owner,
+    repo,
+    sha,
+    state,
+    // GitHub caps the status description at 140 chars.
+    description: description.slice(0, 140),
+    context: REVIEW_STATUS_CONTEXT,
+    target_url: targetUrl,
+  });
 }
 
 export async function postReviewComment(

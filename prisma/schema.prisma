@@ -61,6 +61,9 @@ model Review {
   fixBranch  String? // branch created by the auto-fix agent, if any
   fixPrUrl   String? // URL of the PR opened with automated fixes, if any
   status     String @default("completed") //completed, failed, pending
+  blocking      Boolean @default(false) // true when critical/high findings gate the merge
+  criticalCount Int     @default(0)      // # of critical findings across all agents
+  highCount     Int     @default(0)      // # of high findings across all agents
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

@@ -1,0 +1,31 @@
+# Keep the build context small and secrets out of the image.
+node_modules
+.next
+out
+build
+
+# Secrets / env
+.env
+.env.*
+
+# VCS & tooling
+.git
+.gitignore
+.github
+
+# Generated Prisma client (regenerated in the builder stage)
+lib/generated
+
+# This image installs deps with bun (bun.lock). The npm lockfile is platform-incomplete
+# (darwin-only natives) and is not used by the build.
+package-lock.json
+
+# Editor / OS / misc
+.DS_Store
+*.tsbuildinfo
+npm-debug.log*
+README.md
+
+# Local-only artifacts
+.vercel
+coverage

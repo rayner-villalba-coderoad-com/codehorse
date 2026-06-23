@@ -1,0 +1,148 @@
+name: Deploy
+
+# Build a Docker image, push it to Google Artifact Registry, run DB migrations, and
+# deploy to the GCP VM over an IAP SSH tunnel. Authenticates to GCP keylessly via
+# Workload Identity Federation. See deploy/ and the Deployment docs for the one-time setup.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Existing image tag to deploy (rollback). Leave blank to build & deploy this commit."
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Resolve the image reference + tag and whether we need to build (a rollback supplies
+  # an existing tag and skips the build/migrate jobs).
+  config:
+    name: Resolve config
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.resolve.outputs.image }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      build: ${{ steps.resolve.outputs.build }}
+    steps:
+      - id: resolve
+        run: |
+          INPUT_TAG="${{ github.event.inputs.image_tag }}"
+          IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPO }}/coderoad"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          if [ -n "${INPUT_TAG}" ]; then
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Rollback: deploying existing tag ${INPUT_TAG}"
+          else
+            echo "tag=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "Building & deploying ${{ github.sha }}"
+          fi
+
+  build-push:
+    name: Build & push image
+    needs: config
+    if: needs.config.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            NEXT_PUBLIC_APP_BASE_URL=${{ vars.NEXT_PUBLIC_APP_BASE_URL }}
+          tags: |
+            ${{ needs.config.outputs.image }}:${{ needs.config.outputs.tag }}
+            ${{ needs.config.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  migrate:
+    name: Apply DB migrations
+    needs: [config, build-push]
+    if: needs.config.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Applies any pending migrations to Neon before the new container serves traffic.
+      - name: prisma migrate deploy
+        run: bunx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  deploy:
+    name: Deploy to VM
+    needs: [config, build-push, migrate]
+    # Run when prerequisites succeeded OR were skipped (rollback skips build/migrate),
+    # but never after a real failure or cancellation.
+    if: >-
+      !cancelled()
+      && needs.config.result == 'success'
+      && (needs.build-push.result == 'success' || needs.build-push.result == 'skipped')
+      && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      # /opt/coderoad on the VM holds docker-compose.yml, deploy.sh, and .env (see deploy/).
+      - name: Deploy over IAP SSH
+        run: |
+          gcloud compute ssh "${{ vars.GCE_INSTANCE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --zone "${{ vars.GCE_ZONE }}" \
+            --tunnel-through-iap \
+            --quiet \
+            --command "cd /opt/coderoad && ./deploy.sh '${{ needs.config.outputs.image }}:${{ needs.config.outputs.tag }}'"

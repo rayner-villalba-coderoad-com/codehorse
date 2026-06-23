@@ -1,0 +1,25 @@
+# Runs on the GCP VM at /opt/coderoad. The deploy workflow SSHes in and runs deploy.sh,
+# which exports IMAGE and calls `docker compose up -d`. The VM's reverse proxy (nginx/
+# Caddy, already provisioned) terminates TLS and forwards the public domain to 127.0.0.1:3000.
+services:
+  app:
+    image: ${IMAGE}
+    container_name: coderoad
+    restart: unless-stopped
+    # Runtime secrets live in /opt/coderoad/.env on the VM (see .env.example). Never commit it.
+    env_file: .env
+    ports:
+      # Bind to loopback only — the reverse proxy is the public entrypoint.
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      # Busybox wget ships in the alpine runtime image.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

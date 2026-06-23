@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "review" ADD COLUMN     "blocking" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "criticalCount" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "highCount" INTEGER NOT NULL DEFAULT 0;

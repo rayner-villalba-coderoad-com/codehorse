@@ -8,11 +8,13 @@ import {
   commitFile,
   createPullRequest,
   postPrComment,
+  setReviewStatus,
 } from '@/module/github/lib/github';
 import { retrieveContext } from '@/module/ai/lib/rag';
 import { runMultiAgentReview } from '@/module/ai/agents/graph';
 import { extractJiraKey, getJiraIssue } from '@/module/jira/lib/jira';
 import { collectActionableFindings, generateFixedFile } from '@/module/ai/agents/fixer';
+import { evaluateMergeBlock, statusDescription } from '@/module/ai/agents/policy';
 import type { Prisma } from '@/lib/generated/prisma/client';
 import prisma from '@/lib/db';
 
@@ -28,8 +30,9 @@ export const generateReview = inngest.createFunction(
 
   async ({event, step}) => {
     const {owner, repo, prNumber, userId} = event.data;
+    const prUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
 
-    const {diff, title, description, headRef, token} = await step.run('fetch-pr-data', async()=> {
+    const {diff, title, description, headRef, headSha, token} = await step.run('fetch-pr-data', async()=> {
       const account = await prisma.account.findFirst({
         where: {
           userId: userId,
@@ -44,8 +47,18 @@ export const generateReview = inngest.createFunction(
       const data = await getPullRequestDiff(account.accessToken, owner, repo, prNumber);
 
       return { ...data, token: account.accessToken}
-   
 
+
+    });
+
+    // Mark the PR's check as in-progress while the agents run. Best-effort: a missing
+    // write scope (403) must not fail the review, so swallow and log.
+    await step.run('set-status-pending', async () => {
+      try {
+        await setReviewStatus(token, owner, repo, headSha, 'pending', 'Reviewing changes…', prUrl);
+      } catch (error) {
+        console.error('[set-status-pending] failed:', error);
+      }
     });
 
     const context = await step.run('retrieve-context', async()=> {
@@ -75,8 +88,32 @@ export const generateReview = inngest.createFunction(
       return await runMultiAgentReview({ title, description, diff, context, ticket });
     });
 
+    // Decide whether critical/high findings should gate the merge.
+    const decision = evaluateMergeBlock(findings);
+
+    // Resolve the PR's check: "failure" (with a required-check branch protection rule)
+    // disables the merge button; "success" clears it. Best-effort like the pending step.
+    await step.run('set-status-final', async () => {
+      try {
+        await setReviewStatus(
+          token,
+          owner,
+          repo,
+          headSha,
+          decision.blocking ? 'failure' : 'success',
+          statusDescription(decision),
+          prUrl
+        );
+      } catch (error) {
+        console.error('[set-status-final] failed:', error);
+      }
+    });
+
     await step.run('post-comment', async() => {
-      await postReviewComment(token, owner, repo, prNumber, finalMarkdown);
+      const banner = decision.blocking
+        ? `> ⛔ **Merge blocked** — ${statusDescription(decision)} before this PR can be merged.\n\n`
+        : '';
+      await postReviewComment(token, owner, repo, prNumber, `${banner}${finalMarkdown}`);
     });
 
     // After the review, an auto-fix agent applies the actionable suggestions on a
@@ -190,6 +227,9 @@ export const generateReview = inngest.createFunction(
             fixBranch: fix?.fixBranch ?? null,
             fixPrUrl: fix?.fixPrUrl ?? null,
             status: "completed",
+            blocking: decision.blocking,
+            criticalCount: decision.criticalCount,
+            highCount: decision.highCount,
           },
         });
       }
