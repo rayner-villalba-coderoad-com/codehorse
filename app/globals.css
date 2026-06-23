@@ -177,3 +177,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Indeterminate sweep for the global top loading bar (GlobalLoadingBar). */
+@keyframes loading-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

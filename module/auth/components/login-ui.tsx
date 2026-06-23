@@ -1,22 +1,25 @@
 "use client";
-import React, {useState} from "react";
+import React from "react";
 import { signIn } from "@/lib/auth-client";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Spinner } from "@/components/ui/spinner";
 // import {GitHubIcon} from "lucide-react";
 
 const LoginUI = () => {
-  const [isLoading, setIsLoading] = useState(false);
-  const handleGithubLogin = async () => {
-    setIsLoading(true);
-    try {
-      await signIn.social({
-        provider: "github",
-      })
-    } catch (error) {
+  // Wrapped in a mutation so the request also drives the global loading overlay.
+  const loginMutation = useMutation({
+    mutationFn: async () => {
+      return await signIn.social({ provider: "github" });
+    },
+    onError: (error) => {
       console.error("Login failed:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }
+      toast.error("Login failed. Please try again.");
+    },
+  });
+
+  const isLoading = loginMutation.isPending;
+  const handleGithubLogin = () => loginMutation.mutate();
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-black to-zinc-900 text-white dark flex">
       { /* Left Section - Hero Content */}
@@ -55,7 +58,14 @@ const LoginUI = () => {
             className="w-full py-3 px-4 bg-white text-black rounded-lg font-semibold hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed mt-6 transition-colors flex items-center justify-center gap-4 mb-8"
           >
             {/* <GitHubIcon size={20} /> */}
-            {isLoading ? "Signing in..." : "Sign in with GitHub"}
+            {isLoading ? (
+              <>
+                <Spinner className="size-6" />
+                Signing in...
+              </>
+            ) : (
+              "Sign in with GitHub"
+            )}
           </button>
 
           { /* Footer Links */}
@@ -63,9 +73,6 @@ const LoginUI = () => {
             <div>
               New to CodeRoad AI? { " "}
               <a href="#" className="text-primary hover:text-primary-foreground font-semibold">Sign Up</a>
-            </div>
-            <div>
-              <a href="#" className="text-primary hover:text-primary-foreground font-semibold">Self-Hosted Services</a>
             </div>
           </div>
 

@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import prisma from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { deleteWebhook } from '@/module/github/lib/github';
+import { verifyJiraCredentials } from '@/module/jira/lib/jira';
 
 
 export async function getUserProfile() {
@@ -69,6 +70,129 @@ export async function updateUserProfile(data: {name?:string; email?: string}) {
   } catch (error) {
     console.log("Error updating user profile:", error)
     return { success: false, error: "Failed to update profile"};
+  }
+}
+
+// Returns the current user's Jira config WITHOUT the API token. The token is
+// write-only: the client only learns whether one is set (`hasToken`).
+export async function getJiraConfig() {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers()
+    });
+
+    if (!session?.user) {
+      throw new Error("Unauthorized");
+    }
+
+    const config = await prisma.jiraConfig.findUnique({
+      where: {
+        userId: session.user.id
+      },
+      select: {
+        baseUrl: true,
+        email: true,
+        apiToken: true
+      }
+    });
+
+    if (!config) {
+      return null;
+    }
+
+    return {
+      baseUrl: config.baseUrl,
+      email: config.email,
+      hasToken: Boolean(config.apiToken)
+    };
+  } catch (error) {
+    console.log("Error fetching Jira config:", error);
+    return null;
+  }
+}
+
+// Upserts the user's Jira config. A blank apiToken on an existing config keeps
+// the stored token (the form leaves the field empty unless the user changes it).
+export async function saveJiraConfig(data: { baseUrl: string; email: string; apiToken?: string }) {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers()
+    });
+
+    if (!session?.user) {
+      throw new Error("Unauthorized");
+    }
+
+    const baseUrl = data.baseUrl.trim();
+    const email = data.email.trim();
+    const apiToken = data.apiToken?.trim() ?? "";
+
+    if (!baseUrl || !email) {
+      return { success: false, error: "Base URL and email are required." };
+    }
+
+    const existing = await prisma.jiraConfig.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true }
+    });
+
+    if (!existing && !apiToken) {
+      return { success: false, error: "An API token is required." };
+    }
+
+    await prisma.jiraConfig.upsert({
+      where: { userId: session.user.id },
+      create: {
+        userId: session.user.id,
+        baseUrl,
+        email,
+        apiToken
+      },
+      // Only overwrite the token when a new one was provided.
+      update: {
+        baseUrl,
+        email,
+        ...(apiToken ? { apiToken } : {})
+      }
+    });
+
+    revalidatePath("/dashboard/settings", "page");
+
+    return { success: true };
+  } catch (error) {
+    console.log("Error saving Jira config:", error);
+    return { success: false, error: "Failed to save Jira configuration" };
+  }
+}
+
+// Validates Jira credentials against the live API. A blank apiToken reuses the
+// stored token so the user can test without re-entering it.
+export async function testJiraConnection(data: { baseUrl: string; email: string; apiToken?: string }) {
+  try {
+    const session = await auth.api.getSession({
+      headers: await headers()
+    });
+
+    if (!session?.user) {
+      throw new Error("Unauthorized");
+    }
+
+    const baseUrl = data.baseUrl.trim();
+    const email = data.email.trim();
+    let apiToken = data.apiToken?.trim() ?? "";
+
+    if (!apiToken) {
+      const existing = await prisma.jiraConfig.findUnique({
+        where: { userId: session.user.id },
+        select: { apiToken: true }
+      });
+      apiToken = existing?.apiToken ?? "";
+    }
+
+    return await verifyJiraCredentials({ baseUrl, email, apiToken });
+  } catch (error) {
+    console.log("Error testing Jira connection:", error);
+    return { ok: false, error: "Failed to test Jira connection" };
   }
 }
 

@@ -14,7 +14,9 @@ import {
   PERFORMANCE_PROMPT,
   SECURITY_PROMPT,
   SYNTHESIZER_PROMPT,
+  TESTING_PROMPT,
 } from "./prompts";
+import { formatTicketForPrompt, type JiraTicket } from "@/module/jira/lib/jira";
 
 /** Inputs shared by every node, plus the channels filled in as the graph runs. */
 export interface ReviewState {
@@ -22,10 +24,12 @@ export interface ReviewState {
   title: string;
   description: string;
   context: string[];
+  ticket: JiraTicket | null;
   bestPractices: AgentOutput;
   security: AgentOutput;
   performance: AgentOutput;
   documentation: AgentOutput;
+  testing: AgentOutput;
   finalMarkdown: string;
   findings: ReviewFindings;
 }
@@ -40,6 +44,8 @@ function buildUserPrompt(state: ReviewState): string {
 
   return `PR Title: ${state.title}
 PR Description: ${state.description || "No description provided"}
+
+${formatTicketForPrompt(state.ticket)}
 
 Relevant context from the codebase:
 ${context}
@@ -84,6 +90,7 @@ export const bestPracticesNode = createAgentNode("bestPractices", BEST_PRACTICES
 export const securityNode = createAgentNode("security", SECURITY_PROMPT);
 export const performanceNode = createAgentNode("performance", PERFORMANCE_PROMPT);
 export const documentationNode = createAgentNode("documentation", DOCUMENTATION_PROMPT);
+export const testingNode = createAgentNode("testing", TESTING_PROMPT);
 
 const SEVERITY_EMOJI: Record<Severity, string> = {
   critical: "🔴",
@@ -124,6 +131,7 @@ export async function synthesizeNode(state: ReviewState): Promise<Partial<Review
     security: state.security,
     performance: state.performance,
     documentation: state.documentation,
+    testing: state.testing,
   };
 
   const agentReports = (Object.keys(findings) as AgentCategory[])
@@ -147,6 +155,8 @@ export async function synthesizeNode(state: ReviewState): Promise<Partial<Review
         `PR Title: ${state.title}
 PR Description: ${state.description || "No description provided"}
 
+${formatTicketForPrompt(state.ticket)}
+
 Specialist agent reports:
 ${agentReports}`,
       ],
@@ -165,9 +175,14 @@ ${agentReports}`,
     renderSection("Security", findings.security),
     renderSection("Performance", findings.performance),
     renderSection("Documentation", findings.documentation),
+    renderSection("Testing & Requirements", findings.testing),
   ].join("\n\n");
 
-  const finalMarkdown = `${overview}\n\n## Detailed Findings\n\n${sections}`;
+  const ticketLine = state.ticket
+    ? `🔗 Linked Jira ticket: [${state.ticket.key}](${state.ticket.url}) — ${state.ticket.summary}\n\n`
+    : "";
+
+  const finalMarkdown = `${ticketLine}${overview}\n\n## Detailed Findings\n\n${sections}`;
 
   return { finalMarkdown, findings };
 }

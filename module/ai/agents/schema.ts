@@ -34,6 +34,7 @@ export const reviewFindingsSchema = z.object({
   security: agentOutputSchema,
   performance: agentOutputSchema,
   documentation: agentOutputSchema,
+  testing: agentOutputSchema,
 });
 
 export type Severity = (typeof SEVERITIES)[number];
@@ -47,6 +48,7 @@ export const AGENT_CATEGORIES = [
   "security",
   "performance",
   "documentation",
+  "testing",
 ] as const;
 
 export type AgentCategory = (typeof AGENT_CATEGORIES)[number];
@@ -56,4 +58,5 @@ export const CATEGORY_LABELS: Record<AgentCategory, string> = {
   security: "Security",
   performance: "Performance",
   documentation: "Documentation",
+  testing: "Testing & Requirements",
 };

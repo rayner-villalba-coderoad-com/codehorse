@@ -4,12 +4,14 @@ import {
   documentationNode,
   performanceNode,
   securityNode,
+  testingNode,
   synthesizeNode,
 } from "./nodes";
 import { AgentOutput, ReviewFindings } from "./schema";
+import type { JiraTicket } from "@/module/jira/lib/jira";
 
 /**
- * Graph state. The four agent channels are written by independent nodes (no
+ * Graph state. The five agent channels are written by independent nodes (no
  * conflict), so the default last-value reducer is sufficient.
  */
 const ReviewStateAnnotation = Annotation.Root({
@@ -17,10 +19,12 @@ const ReviewStateAnnotation = Annotation.Root({
   title: Annotation<string>(),
   description: Annotation<string>(),
   context: Annotation<string[]>(),
+  ticket: Annotation<JiraTicket | null>(),
   bestPractices: Annotation<AgentOutput>(),
   security: Annotation<AgentOutput>(),
   performance: Annotation<AgentOutput>(),
   documentation: Annotation<AgentOutput>(),
+  testing: Annotation<AgentOutput>(),
   finalMarkdown: Annotation<string>(),
   findings: Annotation<ReviewFindings>(),
 });
@@ -30,24 +34,28 @@ const ReviewStateAnnotation = Annotation.Root({
  * START (same superstep), then `synthesize` joins their results.
  *
  *   START → bestPractices ┐
- *   START → security      ├→ synthesize → END
- *   START → performance   │
- *   START → documentation ┘
+ *   START → security      │
+ *   START → performance   ├→ synthesize → END
+ *   START → documentation │
+ *   START → testing       ┘
  */
 const reviewGraph = new StateGraph(ReviewStateAnnotation)
   .addNode("bestPracticesAgent", bestPracticesNode)
   .addNode("securityAgent", securityNode)
   .addNode("performanceAgent", performanceNode)
   .addNode("documentationAgent", documentationNode)
+  .addNode("testingAgent", testingNode)
   .addNode("synthesize", synthesizeNode)
   .addEdge(START, "bestPracticesAgent")
   .addEdge(START, "securityAgent")
   .addEdge(START, "performanceAgent")
   .addEdge(START, "documentationAgent")
+  .addEdge(START, "testingAgent")
   .addEdge("bestPracticesAgent", "synthesize")
   .addEdge("securityAgent", "synthesize")
   .addEdge("performanceAgent", "synthesize")
   .addEdge("documentationAgent", "synthesize")
+  .addEdge("testingAgent", "synthesize")
   .addEdge("synthesize", END)
   .compile();
 
@@ -56,6 +64,7 @@ export interface MultiAgentReviewInput {
   title: string;
   description: string;
   context: string[];
+  ticket: JiraTicket | null;
 }
 
 export interface MultiAgentReviewResult {

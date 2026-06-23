@@ -1,6 +1,7 @@
 'use client';
 
 import { ProfileForm } from "@/module/settings/components/profile-form";
+import { JiraForm } from "@/module/settings/components/jira-form";
 import { RepositoryList } from "@/module/settings/components/repository-list";
 import React from "react";
 
@@ -12,6 +13,7 @@ const SettingPage = () => {
         <p className="text-muted-foreground">Manage your account seetings and connected repositories connected</p>
       </div>
       <ProfileForm />
+      <JiraForm />
       <RepositoryList />
     </div>
   )

@@ -4,9 +4,9 @@ import AppSidebar from '@/components/app-sidebar';
 import { Separator  } from '@/components/ui/separator';
 import { requireAuth } from '@/module/auth/utils/auth-utils';
 
-export const metadata = {
-  title: 'Dashboard',
-};
+// export const metadata = {
+//   title: 'Dashboard',
+// };
 
 export default async function DashboardLayout({ children }: { children: ReactNode  }) {
   await requireAuth();

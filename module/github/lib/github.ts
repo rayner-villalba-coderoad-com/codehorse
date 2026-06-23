@@ -234,7 +234,8 @@ export async function getPullRequestDiff(
   return {
     diff: diff as unknown as string,
     title: pr.title,
-    description: pr.body || ""
+    description: pr.body || "",
+    headRef: pr.head.ref
   };
 }
 

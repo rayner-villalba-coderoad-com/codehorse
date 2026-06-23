@@ -28,9 +28,23 @@ model User {
   sessions      Session[]
   accounts      Account[]
   repositories  Repository[]
+  jiraConfig    JiraConfig?
 
   @@unique([email])
   @@map("user")
+}
+
+model JiraConfig {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  baseUrl   String
+  email     String
+  apiToken  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("jira_config")
 }
 
 model Review {
@@ -42,6 +56,8 @@ model Review {
   prUrl      String
   review     String @db.Text
   findings   Json?  // structured per-agent findings from the multi-agent review
+  jiraKey    String? // linked Jira ticket key (e.g. PROJ-123), if found
+  jiraUrl    String? // URL to the linked Jira ticket, if found
   fixBranch  String? // branch created by the auto-fix agent, if any
   fixPrUrl   String? // URL of the PR opened with automated fixes, if any
   status     String @default("completed") //completed, failed, pending

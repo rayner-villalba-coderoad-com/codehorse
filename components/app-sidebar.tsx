@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, BookOpen, Settings, Moon, Sun, LogOut, Star, CreditCard, ShieldAlert } from 'lucide-react';
+import { Box, BookOpen, Settings, Moon, Sun, LogOut, Star, ShieldAlert } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import { usePathname } from 'next/navigation';
@@ -32,11 +32,16 @@ export default function AppSidebar() {
     { title: 'Repository',   url: '/dashboard/repository',   icon: Box        },
     { title: 'Reviews',      url: '/dashboard/reviews',      icon: Star       },
     { title: 'Security',     url: '/dashboard/security',     icon: ShieldAlert},
-    { title: 'Subscription', url: '/dashboard/subscription', icon: CreditCard },
     { title: 'Settings',     url: '/dashboard/settings',     icon: Settings   },
   ];
 
-  const isActive = (url: string) => pathname === url || pathname.startsWith(url + '/');
+  const isActive = (url: string) => {
+    if (url === '/dashboard') {
+      return pathname === '/dashboard';
+    }
+
+    return pathname === url || pathname.startsWith(`${url}/`);
+  };
 
   if (!session) {
     return null;
@@ -133,9 +138,15 @@ export default function AppSidebar() {
                       )}
                     </button>
                   </DropdownMenuItem>
-                  <DropdownMenuItem className='cursor-pointer px-3 py-3 my-1 rounded-md hover:bg-red-500/10 hover:text-red-600 transition-colors font-medium'>
-                    <LogOut className='w-5 h-5 mr-3 shrink-0' />
-                    <Logout>Sign Out</Logout>
+                  <DropdownMenuItem
+                    asChild
+                    onSelect={(e) => e.preventDefault()}
+                    className='cursor-pointer px-3 py-3 my-1 rounded-md hover:bg-red-500/10 hover:text-red-600 transition-colors font-medium'
+                  >
+                    <Logout className='flex w-full items-center gap-3'>
+                      <LogOut className='w-5 h-5 shrink-0' />
+                      <span>Sign Out</span>
+                    </Logout>
                   </DropdownMenuItem>
                 </div>
               </DropdownMenuContent>

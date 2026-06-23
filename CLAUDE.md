@@ -86,3 +86,6 @@ Prisma ORM with the native PrismaPg adapter (not the default Prisma engine). The
 | `AI_PROVIDER` | Review chat model provider: `gemini` (default) or `anthropic` |
 | `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=anthropic`) |
 | `ANTHROPIC_MODEL` | Optional Claude model override (default `claude-sonnet-4-6`) |
+| `JIRA_BASE_URL` | Optional Jira Cloud base URL (e.g. `https://your-domain.atlassian.net`). Global **fallback** — per-user credentials saved in Settings take precedence |
+| `JIRA_EMAIL` | Optional Atlassian account email for Jira API basic auth (fallback) |
+| `JIRA_API_TOKEN` | Optional Atlassian API token (paired with `JIRA_EMAIL`). Per-user config in Settings overrides these. When neither a user's `JiraConfig` nor the `JIRA_*` vars are set, ticket enrichment is skipped and the testing agent runs in test-coverage mode |

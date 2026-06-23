@@ -11,12 +11,13 @@ import {
 } from '@/module/github/lib/github';
 import { retrieveContext } from '@/module/ai/lib/rag';
 import { runMultiAgentReview } from '@/module/ai/agents/graph';
+import { extractJiraKey, getJiraIssue } from '@/module/jira/lib/jira';
 import { collectActionableFindings, generateFixedFile } from '@/module/ai/agents/fixer';
 import type { Prisma } from '@/lib/generated/prisma/client';
 import prisma from '@/lib/db';
 
 // Bounds on the auto-fix step to keep cost and blast radius reasonable.
-const MAX_FIX_FILES = 8;
+const MAX_FIX_FILES = 20;
 const MAX_FIXABLE_FILE_CHARS = 60000;
 
 export const generateReview = inngest.createFunction(
@@ -28,7 +29,7 @@ export const generateReview = inngest.createFunction(
   async ({event, step}) => {
     const {owner, repo, prNumber, userId} = event.data;
 
-    const {diff, title, description, token} = await step.run('fetch-pr-data', async()=> {
+    const {diff, title, description, headRef, token} = await step.run('fetch-pr-data', async()=> {
       const account = await prisma.account.findFirst({
         where: {
           userId: userId,
@@ -53,12 +54,25 @@ export const generateReview = inngest.createFunction(
       return await retrieveContext(query, `${owner}/${repo}`);
     });
 
+    // Best-effort Jira enrichment: pull the linked ticket (if any) so the agents
+    // can review the diff against the ticket's intent and acceptance criteria.
+    // Returns null when no key is found or Jira is not configured.
+    const ticket = await step.run('resolve-jira-ticket', async () => {
+      const key = extractJiraKey([title, headRef, description]);
+      if (!key) return null;
+
+      // Prefer the repo owner's saved Jira config; getJiraIssue falls back to
+      // the JIRA_* env vars when there is none.
+      const config = await prisma.jiraConfig.findUnique({ where: { userId } });
+      return await getJiraIssue(key, config);
+    });
+
     // LangGraph orchestrates four specialist agents (best practices, security,
     // performance, documentation) in parallel plus a synthesizer node. With
     // Inngest concurrency 5, this can reach ~20 concurrent Gemini calls — lower
     // the function concurrency if Gemini rate limits become an issue.
     const { finalMarkdown, findings } = await step.run("generate-ai-review", async()=> {
-      return await runMultiAgentReview({ title, description, diff, context });
+      return await runMultiAgentReview({ title, description, diff, context, ticket });
     });
 
     await step.run('post-comment', async() => {
@@ -171,6 +185,8 @@ export const generateReview = inngest.createFunction(
             prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
             review: finalMarkdown,
             findings: findings as unknown as Prisma.InputJsonValue,
+            jiraKey: ticket?.key ?? null,
+            jiraUrl: ticket?.url ?? null,
             fixBranch: fix?.fixBranch ?? null,
             fixPrUrl: fix?.fixPrUrl ?? null,
             status: "completed",

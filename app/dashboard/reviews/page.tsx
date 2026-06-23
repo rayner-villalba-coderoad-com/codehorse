@@ -14,6 +14,7 @@ const CATEGORY_ORDER = [
   { key: "security", label: "Security" },
   { key: "performance", label: "Performance" },
   { key: "documentation", label: "Documentation" },
+  { key: "testing", label: "Testing & Requirements" },
 ] as const;
 
 function severityVariant(severity: Severity): "default" | "destructive" | "secondary" {
@@ -127,6 +128,19 @@ export default function ReviewsPage() {
                         <CardDescription>
                           {review.repository.fullName} - PR #{review.prNumber}
                         </CardDescription>
+                        {review.jiraKey && (
+                          <a
+                            href={review.jiraUrl ?? "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex"
+                          >
+                            <Badge variant="outline" className="gap-1">
+                              <ExternalLink className="h-3 w-3" />
+                              {review.jiraKey}
+                            </Badge>
+                          </a>
+                        )}
                       </div>
                       <Button variant="ghost" size="icon" asChild>
                         <a href={review.prUrl} target="_blank" rel="noopener noreferrer">
