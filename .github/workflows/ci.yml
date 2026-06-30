@@ -1,0 +1,60 @@
+name: CI
+
+# Validate the app builds and passes lint/typecheck on every PR and on main.
+on:
+  pull_request:
+    branches: [main]  
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lint, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Install deps with bun (bun.lock); build with Node. bun resolves the platform
+      # native binaries (lightningcss / @tailwindcss/oxide) that the darwin-only npm
+      # lockfile cannot.
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The Prisma client lives at lib/generated/prisma (gitignored) and is imported
+      # across the app, so it must be generated before lint/typecheck/build.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # Non-blocking for now: the codebase has pre-existing lint debt (no-explicit-any,
+      # react-hooks/set-state-in-effect, unused vars). Lint output stays visible in the
+      # run; flip `continue-on-error` to false once the existing violations are cleared.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          # Build-time public URL; a placeholder is fine for CI validation builds.
+          NEXT_PUBLIC_APP_BASE_URL: ${{ vars.NEXT_PUBLIC_APP_BASE_URL || 'http://localhost:3000' }}

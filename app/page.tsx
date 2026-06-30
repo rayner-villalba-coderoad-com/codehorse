@@ -1,10 +1,7 @@
-import { Button } from "@/components/ui/button";
-import Image from "next/image";
+import { requireAuth } from "@/module/auth/utils/auth-utils";
+import { redirect } from "next/navigation";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col items-center justify-center h-screen">
-      <Button>Hola Mundo</Button>
-    </div>
-  );
+export default async function Home() {
+  await requireAuth();
+  return redirect("/dashboard");
 }

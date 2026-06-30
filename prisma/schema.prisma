@@ -1,0 +1,158 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Test {
+  id   String @id @default(cuid())
+  name String
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String 
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  repositories  Repository[]
+  jiraConfig    JiraConfig?
+
+  @@unique([email])
+  @@map("user")
+}
+
+model JiraConfig {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  baseUrl   String
+  email     String
+  apiToken  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("jira_config")
+}
+
+model Review {
+  id        String @id @default(cuid())
+  repositoryId String
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  prNumber   Int
+  prTitle    String
+  prUrl      String
+  review     String @db.Text
+  findings   Json?  // structured per-agent findings from the multi-agent review
+  jiraKey    String? // linked Jira ticket key (e.g. PROJ-123), if found
+  jiraUrl    String? // URL to the linked Jira ticket, if found
+  fixBranch  String? // branch created by the auto-fix agent, if any
+  fixPrUrl   String? // URL of the PR opened with automated fixes, if any
+  status     String @default("completed") //completed, failed, pending
+  blocking      Boolean @default(false) // true when critical/high findings gate the merge
+  criticalCount Int     @default(0)      // # of critical findings across all agents
+  highCount     Int     @default(0)      // # of high findings across all agents
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([repositoryId])
+  @@map("review")  
+}
+
+model Repository {
+  id            String   @id @default(cuid())
+  githubId      BigInt   @unique
+  name        String
+  owner       String
+  fullName    String
+  url         String
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews     Review[]
+  securityScans SecurityScan[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@map("repository")
+}
+
+model SecurityScan {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  status        String     @default("pending") // pending, running, completed, failed
+  report        String?    @db.Text // markdown vulnerability report
+  findings      Json?      // structured Finding[] from the security agent
+  criticalCount Int        @default(0)
+  highCount     Int        @default(0)
+  totalCount    Int        @default(0)
+  fixBranch     String?    // branch created with fixes for critical findings, if any
+  fixPrUrl      String?    // URL of the PR opened with automated fixes, if any
+  error         String?    @db.Text // failure reason, if status == "failed"
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([repositoryId])
+  @@map("security_scan")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
