@@ -21,6 +21,23 @@ import prisma from '@/lib/db';
 // Bounds on the auto-fix step to keep cost and blast radius reasonable.
 const MAX_FIX_FILES = 20;
 const MAX_FIXABLE_FILE_CHARS = 60000;
+// How many files to fetch + LLM-rewrite at once. Bounded so we don't hammer the model's
+// rate limit while still avoiding the old one-file-at-a-time sequential latency.
+const FIX_CONCURRENCY = 5;
+
+/** Maps items through an async fn with bounded concurrency, preserving input order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    results.push(...(await Promise.all(chunk.map(fn))));
+  }
+  return results;
+}
 
 export const generateReview = inngest.createFunction(
   { id: "generate-review",
@@ -139,14 +156,14 @@ export const generateReview = inngest.createFunction(
           return null;
         }
 
-        const fixBranch = `coderoad-ai-reviewer/fix/pr-${prNumber}-${Date.now()}`;
-        await createBranch(token, owner, repo, fixBranch, meta.headSha);
-
-        const fixedFiles: string[] = [];
-        for (const target of targets) {
+        // Phase 1 (concurrent): fetch each file and generate its corrected version. This
+        // full-file LLM rewrite is the expensive part — running it in parallel (bounded by
+        // FIX_CONCURRENCY) instead of one file at a time is the main speedup. Files that are
+        // missing, too large, or unchanged drop out as null.
+        const prepared = await mapWithConcurrency(targets, FIX_CONCURRENCY, async (target) => {
           const current = await getFileContent(token, owner, repo, target.file, meta.headRef);
           if (!current || current.content.length > MAX_FIXABLE_FILE_CHARS) {
-            continue;
+            return null;
           }
 
           const updated = await generateFixedFile({
@@ -156,23 +173,36 @@ export const generateReview = inngest.createFunction(
           });
 
           if (!updated || updated === current.content) {
-            continue;
+            return null;
           }
 
-          await commitFile(token, owner, repo, {
-            path: target.file,
-            content: updated,
-            message: `fix: apply review suggestions to ${target.file} (PR #${prNumber})`,
-            branch: fixBranch,
-            sha: current.sha,
-          });
-          fixedFiles.push(target.file);
-        }
+          return { file: target.file, content: updated, sha: current.sha };
+        });
 
-        if (fixedFiles.length === 0) {
+        const fixes = prepared.filter(
+          (f): f is { file: string; content: string; sha: string } => f !== null
+        );
+        if (fixes.length === 0) {
           return null;
         }
 
+        // Phase 2 (sequential): create the branch (only now that we have ≥1 fix, so we
+        // don't leave empty branches) and commit each file. Commits must be serial — the
+        // contents API advances the branch head one commit at a time.
+        const fixBranch = `coderoad-ai-reviewer/fix/pr-${prNumber}-${Date.now()}`;
+        await createBranch(token, owner, repo, fixBranch, meta.headSha);
+
+        for (const f of fixes) {
+          await commitFile(token, owner, repo, {
+            path: f.file,
+            content: f.content,
+            message: `fix: apply review suggestions to ${f.file} (PR #${prNumber})`,
+            branch: fixBranch,
+            sha: f.sha,
+          });
+        }
+
+        const fixedFiles = fixes.map((f) => f.file);
         const body = [
           `This PR applies automated fixes for review findings on #${prNumber}.`,
           "",

@@ -1,6 +1,9 @@
 # Runs on the GCP VM at /opt/coderoad. The deploy workflow SSHes in and runs deploy.sh,
-# which exports IMAGE and calls `docker compose up -d`. The VM's reverse proxy (nginx/
-# Caddy, already provisioned) terminates TLS and forwards the public domain to 127.0.0.1:3000.
+# which exports IMAGE and calls `docker compose up -d`.
+#
+# Topology: ngrok is the only internet-facing piece — it tunnels GitHub webhooks, the OAuth
+# callback, and the UI to the app over an outbound connection (no inbound ports opened).
+# Inngest runs self-hosted on the box; the app and Inngest talk over this compose network.
 services:
   app:
     image: ${IMAGE}
@@ -8,8 +11,9 @@ services:
     restart: unless-stopped
     # Runtime secrets live in /opt/coderoad/.env on the VM (see .env.example). Never commit it.
     env_file: .env
+    # Reachable as `app:3000` on the compose network (used by ngrok and inngest). Also
+    # published on loopback so deploy.sh's health check and local debugging work.
     ports:
-      # Bind to loopback only — the reverse proxy is the public entrypoint.
       - "127.0.0.1:3000:3000"
     healthcheck:
       # Busybox wget ships in the alpine runtime image.
@@ -23,3 +27,28 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Self-hosted Inngest dev server. Syncs and invokes the app's functions at
+  # /api/inngest over the internal network. NOTE: in-memory — a restart drops run history
+  # and in-flight jobs (fine for demo/staging; use Inngest Cloud or `inngest start` for prod).
+  inngest:
+    image: inngest/inngest:latest
+    container_name: coderoad-inngest
+    restart: unless-stopped
+    command: inngest dev -u http://app:3000/api/inngest --no-discovery
+    # Dashboard on loopback only — reach it via an SSH tunnel (gcloud ... -- -L 8288:localhost:8288).
+    ports:
+      - "127.0.0.1:8288:8288"
+    depends_on:
+      - app
+
+  # Public HTTPS entrypoint. Forwards the reserved ngrok domain to the app container.
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: coderoad-ngrok
+    restart: unless-stopped
+    command: http app:3000 --url=https://${NGROK_DOMAIN}
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    depends_on:
+      - app
