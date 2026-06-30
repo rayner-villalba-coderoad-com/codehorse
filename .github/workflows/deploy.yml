@@ -143,4 +143,4 @@ jobs:
             --zone "${{ vars.GCE_ZONE }}" \
             --tunnel-through-iap \
             --quiet \
-            --command "cd /opt/coderoad && ./deploy.sh '${{ needs.config.outputs.image }}:${{ needs.config.outputs.tag }}'"
+            --command "cd /opt/coderoad && sudo ./deploy.sh '${{ needs.config.outputs.image }}:${{ needs.config.outputs.tag }}'"
