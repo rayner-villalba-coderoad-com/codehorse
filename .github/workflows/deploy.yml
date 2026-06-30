@@ -46,7 +46,6 @@ jobs:
   build-push:
     name: Build & push image
     needs: config
-    if: needs.config.outputs.build == 'true'
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -89,7 +88,6 @@ jobs:
   migrate:
     name: Apply DB migrations
     needs: [config, build-push]
-    if: needs.config.outputs.build == 'true'
     runs-on: ubuntu-latest
     environment: production
     steps:
