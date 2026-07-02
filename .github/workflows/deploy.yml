@@ -4,8 +4,8 @@ name: Deploy
 # deploy to the GCP VM over an IAP SSH tunnel. Authenticates to GCP keylessly via
 # Workload Identity Federation. See deploy/ and the Deployment docs for the one-time setup.
 on:
-  push:
-    branches: [main]
+  # push:
+  #   branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -53,7 +53,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -96,7 +96,7 @@ jobs:
     environment: production
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Install deps with bun (bun.lock resolves the Linux native binaries the
       # darwin-only npm lockfile cannot), but run the Node-oriented Prisma CLI
@@ -137,13 +137,13 @@ jobs:
       id-token: write
     steps:
       - name: Authenticate to Google Cloud (WIF)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
 
