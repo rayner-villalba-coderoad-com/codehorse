@@ -6,7 +6,7 @@
 # Inngest runs self-hosted on the box; the app and Inngest talk over this compose network.
 services:
   app:
-    image: ${IMAGE}
+    image: ${IMAGE:-aicodereviewer:v0.1}
     container_name: coderoad
     restart: unless-stopped
     # Runtime secrets live in /opt/coderoad/.env on the VM (see .env.example). Never commit it.
@@ -14,7 +14,7 @@ services:
     # Reachable as `app:3000` on the compose network (used by ngrok and inngest). Also
     # published on loopback so deploy.sh's health check and local debugging work.
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     healthcheck:
       # Busybox wget ships in the alpine runtime image.
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
@@ -38,7 +38,7 @@ services:
     command: inngest dev -u http://app:3000/api/inngest --no-discovery
     # Dashboard on loopback only — reach it via an SSH tunnel (gcloud ... -- -L 8288:localhost:8288).
     ports:
-      - "127.0.0.1:8288:8288"
+      - "8288:8288"
     depends_on:
       - app
 
@@ -47,8 +47,11 @@ services:
     image: ngrok/ngrok:latest
     container_name: coderoad-ngrok
     restart: unless-stopped
-    command: http app:3000 --url=https://${NGROK_DOMAIN}
+    env_file: .env
+    command: http --url=https://${NGROK_DOMAIN} app:3000
     environment:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    ports:
+      - 4040:4040
     depends_on:
       - app

@@ -18,9 +18,22 @@ const severityRank: Record<Severity, number> = SEVERITIES.reduce(
 );
 
 /**
+ * Normalizes a finding's file path to a clean repo-relative path so it can be
+ * fetched via the GitHub contents API. Models often copy the diff-header form
+ * (`a/src/x.ts` / `b/src/x.ts`), a `./` prefix, or a leading slash — strip those.
+ */
+export function normalizeFilePath(file: string): string {
+  return file
+    .trim()
+    .replace(/^[ab]\//, "") // diff header prefix
+    .replace(/^\.\//, "") // leading ./
+    .replace(/^\/+/, ""); // leading slash(es)
+}
+
+/**
  * Collects findings that are actionable as code edits: they must reference a
- * concrete file AND carry a suggestion. Findings are grouped per file and
- * ordered from most to least severe.
+ * concrete file AND carry a suggestion. Findings are grouped per (normalized)
+ * file and ordered from most to least severe.
  */
 export function collectActionableFindings(findings: ReviewFindings): FileFixTarget[] {
   const byFile = new Map<string, Finding[]>();
@@ -31,9 +44,11 @@ export function collectActionableFindings(findings: ReviewFindings): FileFixTarg
 
     for (const finding of output.findings) {
       if (!finding.file || !finding.suggestion) continue;
-      const list = byFile.get(finding.file) ?? [];
+      const file = normalizeFilePath(finding.file);
+      if (!file) continue;
+      const list = byFile.get(file) ?? [];
       list.push(finding);
-      byFile.set(finding.file, list);
+      byFile.set(file, list);
     }
   }
 
