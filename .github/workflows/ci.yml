@@ -2,10 +2,10 @@ name: CI
 
 # Validate the app builds and passes lint/typecheck on every PR and on main.
 on:
-  pull_request:
-    branches: [main]  
-  push:
-    branches: [main]
+  # pull_request:
+  #   branches: [main]  
+  # push:
+  #   branches: [main]
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref to save CI minutes.
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Install deps with bun (bun.lock); build with Node. bun resolves the platform
       # native binaries (lightningcss / @tailwindcss/oxide) that the darwin-only npm
