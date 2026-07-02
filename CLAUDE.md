@@ -32,7 +32,7 @@ For Inngest to work locally, `INNGEST_DEV=1` must be set in `.env`.
 2. **Inngest** picks up the event and runs `generateReview`:
    - Fetches PR diff and metadata via Octokit
    - Queries Pinecone for relevant codebase context (RAG)
-   - Calls Google Gemini 2.5 Flash to produce the review
+   - Calls Google Gemini 3.5 Flash to produce the review
    - Posts the review as a GitHub PR comment
    - Sets a `coderoad/ai-review` commit status (`failure` on critical/high findings, else `success`) — see **Merge blocking**
    - Saves the review to the `Review` table
@@ -69,7 +69,7 @@ Prisma ORM with the native PrismaPg adapter (not the default Prisma engine). The
 ### AI / RAG
 
 - Embeddings and vector storage: `@pinecone-database/pinecone` — configured in `lib/pinecone.ts`, logic in `module/ai/lib/rag.ts`
-- Text generation: `@ai-sdk/google` with `google("gemini-2.5-flash")` via Vercel AI SDK `generateText`
+- Text generation: `@ai-sdk/google` with `google("gemini-3.5-flash")` via Vercel AI SDK `generateText`
 
 ### Merge blocking
 

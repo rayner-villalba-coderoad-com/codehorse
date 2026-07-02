@@ -9,8 +9,18 @@ You are reviewing a single pull request. Focus ONLY on your area of expertise an
 ignore concerns owned by other agents. Base every finding on the actual code in the
 diff — do not invent issues. Only flag what changed or is directly affected by the
 change. If you find nothing worth reporting, return an empty findings array and say so
-in the summary. Order findings from most to least severe. When you can identify the
-file from the diff, set the "file" field.
+in the summary. Order findings from most to least severe.
+
+For every actionable finding you MUST populate BOTH of these fields so the change can
+be applied automatically:
+- "file": the exact repo-relative path of the file, exactly as it appears in the diff
+  but WITHOUT the leading "a/" or "b/" prefix (e.g. "src/app/page.tsx", not
+  "b/src/app/page.tsx").
+- "suggestion": a concrete, minimal code change that resolves the finding — specific
+  enough to apply directly (the actual corrected code or precise edit), not vague
+  advice like "consider improving this".
+A finding that omits either field cannot be auto-fixed, so only leave them empty when
+the finding genuinely is not tied to a specific file or has no concrete code change.
 `;
 
 export const BEST_PRACTICES_PROMPT = `You are a senior software engineer specialized in clean code and maintainability.

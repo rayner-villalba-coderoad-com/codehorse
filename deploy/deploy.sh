@@ -10,12 +10,40 @@ export IMAGE
 cd "$(dirname "$0")"
 
 echo "Deploying ${IMAGE}"
+
+# ── Snapshot the image currently backing the running container ──────────────
+# We look this up by digest (not tag) so we can remove it after the swap even
+# if it still carries its old version tag — which docker image prune -f would
+# otherwise skip.
+OLD_CONTAINER_ID=$(docker compose ps -q app 2>/dev/null || true)
+OLD_IMAGE_ID=""
+if [[ -n "${OLD_CONTAINER_ID}" ]]; then
+  OLD_IMAGE_ID=$(docker inspect --format='{{.Image}}' "${OLD_CONTAINER_ID}" 2>/dev/null || true)
+  echo "Current image digest: ${OLD_IMAGE_ID:-<unknown>}"
+fi
+
+# ── Pull new image and restart the service ───────────────────────────────────
 docker compose pull
-docker compose up -d
-# Reclaim disk from superseded images.
+docker compose up -d --remove-orphans
+
+# ── Remove the superseded image ──────────────────────────────────────────────
+if [[ -n "${OLD_IMAGE_ID}" ]]; then
+  NEW_IMAGE_ID=$(docker inspect --format='{{.Image}}' \
+    "$(docker compose ps -q app)" 2>/dev/null || true)
+
+  if [[ "${OLD_IMAGE_ID}" == "${NEW_IMAGE_ID}" ]]; then
+    echo "Image digest unchanged — skipping old image removal."
+  else
+    echo "Removing old image ${OLD_IMAGE_ID}…"
+    docker image rm "${OLD_IMAGE_ID}" \
+      || echo "Warning: could not remove old image (may be referenced elsewhere)."
+  fi
+fi
+
+# Catch any other dangling layers left over.
 docker image prune -f
 
-# Wait for the container to answer on the published loopback port.
+# ── Health check ─────────────────────────────────────────────────────────────
 echo "Waiting for health…"
 for _ in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then

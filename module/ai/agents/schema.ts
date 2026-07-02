@@ -13,11 +13,18 @@ export const findingSchema = z.object({
   file: z
     .string()
     .optional()
-    .describe("Path of the file the finding applies to, if identifiable from the diff."),
+    .describe(
+      "Exact repo-relative path of the file the finding applies to, as it appears in " +
+        "the diff but without the leading 'a/' or 'b/' prefix. Required for the finding " +
+        "to be auto-fixable."
+    ),
   suggestion: z
     .string()
     .optional()
-    .describe("Concrete suggestion or code change to address the finding."),
+    .describe(
+      "A concrete code change that resolves the finding — specific enough to apply " +
+        "directly, not vague advice. Required for the finding to be auto-fixable."
+    ),
 });
 
 export const agentOutputSchema = z.object({

@@ -137,15 +137,21 @@ export const generateReview = inngest.createFunction(
     // new branch and opens a PR targeting the original PR's head branch. Best-effort:
     // any failure logs and returns null so the review still gets saved.
     const fix = await step.run('apply-fixes', async (): Promise<{ fixBranch: string; fixPrUrl: string } | null> => {
+      const logPrefix = `[apply-fixes] ${owner}/${repo}#${prNumber}`;
       try {
         const targets = collectActionableFindings(findings).slice(0, MAX_FIX_FILES);
+        console.log(`${logPrefix}: ${targets.length} actionable target file(s)`);
         if (targets.length === 0) {
+          console.log(
+            `${logPrefix}: no findings had both a file and a suggestion — skipping auto-fix`
+          );
           return null;
         }
 
         const meta = await getPullRequestMeta(token, owner, repo, prNumber);
 
         if (meta.isFork) {
+          console.log(`${logPrefix}: PR head is a fork — skipping auto-fix`);
           await postPrComment(
             token,
             owner,
@@ -162,7 +168,12 @@ export const generateReview = inngest.createFunction(
         // missing, too large, or unchanged drop out as null.
         const prepared = await mapWithConcurrency(targets, FIX_CONCURRENCY, async (target) => {
           const current = await getFileContent(token, owner, repo, target.file, meta.headRef);
-          if (!current || current.content.length > MAX_FIXABLE_FILE_CHARS) {
+          if (!current) {
+            console.warn(`${logPrefix}: ${target.file} not found at ${meta.headRef} — skipping`);
+            return null;
+          }
+          if (current.content.length > MAX_FIXABLE_FILE_CHARS) {
+            console.warn(`${logPrefix}: ${target.file} exceeds size limit — skipping`);
             return null;
           }
 
@@ -173,6 +184,7 @@ export const generateReview = inngest.createFunction(
           });
 
           if (!updated || updated === current.content) {
+            console.log(`${logPrefix}: ${target.file} unchanged by model — skipping`);
             return null;
           }
 
@@ -182,6 +194,7 @@ export const generateReview = inngest.createFunction(
         const fixes = prepared.filter(
           (f): f is { file: string; content: string; sha: string } => f !== null
         );
+        console.log(`${logPrefix}: prepared ${fixes.length} file fix(es)`);
         if (fixes.length === 0) {
           return null;
         }
@@ -190,6 +203,7 @@ export const generateReview = inngest.createFunction(
         // don't leave empty branches) and commit each file. Commits must be serial — the
         // contents API advances the branch head one commit at a time.
         const fixBranch = `coderoad-ai-reviewer/fix/pr-${prNumber}-${Date.now()}`;
+        console.log(`${logPrefix}: creating branch ${fixBranch}`);
         await createBranch(token, owner, repo, fixBranch, meta.headSha);
 
         for (const f of fixes) {
@@ -228,9 +242,10 @@ export const generateReview = inngest.createFunction(
           `🤖 I opened a PR with automated fixes for the review findings: ${pr.url}`
         );
 
+        console.log(`${logPrefix}: opened auto-fix PR ${pr.url}`);
         return { fixBranch, fixPrUrl: pr.url };
       } catch (error) {
-        console.error("[apply-fixes] failed:", error);
+        console.error(`${logPrefix}: failed:`, error);
         return null;
       }
     });

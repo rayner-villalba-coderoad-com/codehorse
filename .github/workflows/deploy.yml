@@ -94,17 +94,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Install deps with bun (bun.lock resolves the Linux native binaries the
+      # darwin-only npm lockfile cannot), but run the Node-oriented Prisma CLI
+      # under Node 22 — matching the Dockerfile and CI, and avoiding bun runtime issues.
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       # Applies any pending migrations to Neon before the new container serves traffic.
       - name: prisma migrate deploy
-        run: bunx prisma migrate deploy
+        run: npx prisma migrate deploy
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
