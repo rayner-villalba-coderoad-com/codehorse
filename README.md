@@ -41,3 +41,17 @@ ngrok http 3000
 # Start Inngest dev server (http://localhost:8288)
 npx  inngest-cli@latest dev
 ```
+
+## Docker Building
+### Building image
+```bash
+docker build --build-arg NEXT_PUBLIC_APP_BASE_URL=${NEXT_PUBLIC_APP_BASE_URL} -t aicodereviewer:v0.1 .
+```
+*NOTE* 
+Replace ${NEXT_PUBLIC_APP_BASE_URL} with your NEXT_PUBLIC_APP_BASE_URL
+
+### Start Docker Compose
+```bash
+cd deploy/
+docker compose up
+```

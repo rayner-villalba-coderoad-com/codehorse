@@ -10,7 +10,7 @@ const LoginUI = () => {
   // Wrapped in a mutation so the request also drives the global loading overlay.
   const loginMutation = useMutation({
     mutationFn: async () => {
-      return await signIn.social({ provider: "github" });
+      return await signIn.social({ provider: "github", callbackURL: "/dashboard" });
     },
     onError: (error) => {
       console.error("Login failed:", error);
