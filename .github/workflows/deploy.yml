@@ -60,7 +60,11 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          node-version-file: .nvmrc
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
